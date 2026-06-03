@@ -81,7 +81,7 @@ func TestParseAddnessCodexTodaysGoalsView(t *testing.T) {
 				}
 			]
 		}
-	}`), ids, "2026-06-04")
+	}`), ids, "2026-06-04", "")
 	if err != nil {
 		t.Fatalf("parseAddnessCodexTodaysGoalsView returned error: %v", err)
 	}
@@ -129,5 +129,55 @@ func TestParseAddnessCodexTodaysGoalsView(t *testing.T) {
 
 	if _, err := json.Marshal(payload); err != nil {
 		t.Fatalf("payload should be JSON serializable: %v", err)
+	}
+}
+
+func TestParseAddnessCodexTodaysGoalsView_OmitsOwnerFieldsForViewingMember(t *testing.T) {
+	ids := NewShortIDCache()
+	viewingMemberID := "member-self-000000000000000000000001"
+	payload, err := parseAddnessCodexTodaysGoalsView([]byte(`{
+		"data": {
+			"nodes": [
+				{
+					"id": "goal-self-000000000000000000000001",
+					"parentId": null,
+					"depth": 0,
+					"title": "自分のゴール",
+					"orderNo": 10,
+					"owner": {
+						"organizationMemberId": "member-self-000000000000000000000001",
+						"name": "Kei",
+						"avatarUrl": "https://example.com/kei.png"
+					}
+				},
+				{
+					"id": "goal-other-000000000000000000000001",
+					"parentId": null,
+					"depth": 0,
+					"title": "他人のゴール",
+					"orderNo": 20,
+					"owner": {
+						"organizationMemberId": "member-other-000000000000000000000001",
+						"name": "Other",
+						"avatarUrl": "https://example.com/other.png"
+					}
+				}
+			]
+		}
+	}`), ids, "2026-06-04", viewingMemberID)
+	if err != nil {
+		t.Fatalf("parseAddnessCodexTodaysGoalsView returned error: %v", err)
+	}
+	if len(payload.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(payload.Nodes))
+	}
+	if payload.Nodes[0].OwnerName != nil || payload.Nodes[0].OwnerAvatarURL != nil {
+		t.Fatalf("self goal should omit owner display fields, got name=%#v avatar=%#v", payload.Nodes[0].OwnerName, payload.Nodes[0].OwnerAvatarURL)
+	}
+	if payload.Nodes[1].OwnerName == nil || *payload.Nodes[1].OwnerName != "Other" {
+		t.Fatalf("other goal should keep owner name, got %#v", payload.Nodes[1].OwnerName)
+	}
+	if payload.Nodes[1].OwnerAvatarURL == nil || *payload.Nodes[1].OwnerAvatarURL != "https://example.com/other.png" {
+		t.Fatalf("other goal should keep owner avatar, got %#v", payload.Nodes[1].OwnerAvatarURL)
 	}
 }

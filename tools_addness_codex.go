@@ -36,11 +36,13 @@ func handleAddnessCodexGetTodaysGoalsView(client *AddnessClient) server.ToolHand
 		}
 
 		path := fmt.Sprintf("/api/v2/organizations/%s/todays-goals?date=%s", client.OrganizationID(), url.QueryEscape(date))
+		viewingMemberID := client.MemberID()
 		if memberID := argStr(args, "member_id"); memberID != "" {
 			resolved, err := client.ids.Resolve(memberID)
 			if err != nil {
 				return errResult(err.Error()), nil
 			}
+			viewingMemberID = resolved
 			path += "&member_id=" + url.QueryEscape(resolved)
 		} else if myID := client.MemberID(); myID != "" {
 			path += "&member_id=" + url.QueryEscape(myID)
@@ -51,7 +53,7 @@ func handleAddnessCodexGetTodaysGoalsView(client *AddnessClient) server.ToolHand
 			return errResult(fmt.Sprintf("failed: %v", err)), nil
 		}
 
-		payload, err := parseAddnessCodexTodaysGoalsView(data, client.ids, date)
+		payload, err := parseAddnessCodexTodaysGoalsView(data, client.ids, date, viewingMemberID)
 		if err != nil {
 			return errResult(fmt.Sprintf("parse error: %v", err)), nil
 		}
@@ -95,7 +97,7 @@ type addnessCodexTodaysGoalsViewNode struct {
 	ExecutionStatus        *string `json:"executionStatus,omitempty"`
 }
 
-func parseAddnessCodexTodaysGoalsView(data []byte, ids *ShortIDCache, date string) (addnessCodexTodaysGoalsViewPayload, error) {
+func parseAddnessCodexTodaysGoalsView(data []byte, ids *ShortIDCache, date string, viewingMemberID string) (addnessCodexTodaysGoalsViewPayload, error) {
 	raw, err := parseAddnessCodexTodaysGoalsViewNodes(data)
 	if err != nil {
 		return addnessCodexTodaysGoalsViewPayload{}, err
@@ -117,6 +119,8 @@ func parseAddnessCodexTodaysGoalsView(data []byte, ids *ShortIDCache, date strin
 			completedAt = executionCompletedAt
 		}
 
+		ownerName, ownerAvatarURL := codexOwnerDisplayFields(nm, viewingMemberID)
+
 		node := addnessCodexTodaysGoalsViewNode{
 			ID:                     shortID,
 			ParentID:               parentID,
@@ -125,8 +129,8 @@ func parseAddnessCodexTodaysGoalsView(data []byte, ids *ShortIDCache, date strin
 			Status:                 stringPtrField(nm, "status"),
 			CompletedAt:            completedAt,
 			OrderNo:                floatNumber(nm, "orderNo"),
-			OwnerName:              ownerStringField(nm, "name"),
-			OwnerAvatarURL:         ownerAvatarURL(nm),
+			OwnerName:              ownerName,
+			OwnerAvatarURL:         ownerAvatarURL,
 			UnresolvedCommentCount: intPtrField(nm, "unresolvedCommentCount"),
 			IsLeaf:                 boolField(nm, "isLeaf"),
 			HasRecurring:           boolField(nm, "hasRecurring"),
@@ -220,6 +224,16 @@ func ownerStringField(raw map[string]any, key string) *string {
 		return nil
 	}
 	return stringPtrField(owner, key)
+}
+
+// codexOwnerDisplayFields は Codex UI 向けに owner 表示フィールドを返す。
+// 閲覧対象メンバー自身のゴールには ownerName / ownerAvatarUrl を付けない（Web の self view と同じ）。
+func codexOwnerDisplayFields(raw map[string]any, viewingMemberID string) (*string, *string) {
+	ownerMemberID := ownerStringField(raw, "organizationMemberId")
+	if ownerMemberID != nil && viewingMemberID != "" && *ownerMemberID == viewingMemberID {
+		return nil, nil
+	}
+	return ownerStringField(raw, "name"), ownerAvatarURL(raw)
 }
 
 func ownerAvatarURL(raw map[string]any) *string {
