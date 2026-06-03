@@ -58,6 +58,28 @@ func main() {
 		server.WithInstructions(serverInstructions),
 	)
 
+	if shouldRegisterDefaultTools() {
+		registerDefaultTools(s, client)
+	}
+	if shouldRegisterAddnessCodexTools() {
+		registerAddnessCodexTools(s, client)
+	}
+
+	if err := server.ServeStdio(s); err != nil {
+		log.Fatalf("server error: %v", err)
+	}
+}
+
+func shouldRegisterDefaultTools() bool {
+	return os.Getenv("ADDNESS_MCP_ONLY_ADDNESS_CODEX_TOOLS") != "1"
+}
+
+func shouldRegisterAddnessCodexTools() bool {
+	return os.Getenv("ADDNESS_MCP_ENABLE_ADDNESS_CODEX_TOOLS") == "1" ||
+		os.Getenv("ADDNESS_MCP_ONLY_ADDNESS_CODEX_TOOLS") == "1"
+}
+
+func registerDefaultTools(s *server.MCPServer, client *AddnessClient) {
 	// Auth
 	s.AddTool(authLoginTool(), handleAuthLogin(client))
 
@@ -127,8 +149,8 @@ func main() {
 	s.AddTool(getDeliverableTool(), handleGetDeliverable(client))
 	s.AddTool(createDeliverableTool(), handleCreateDeliverable(client))
 	s.AddTool(deleteDeliverableTool(), handleDeleteDeliverable(client))
+}
 
-	if err := server.ServeStdio(s); err != nil {
-		log.Fatalf("server error: %v", err)
-	}
+func registerAddnessCodexTools(s *server.MCPServer, client *AddnessClient) {
+	s.AddTool(addnessCodexGetTodaysGoalsViewTool(), handleAddnessCodexGetTodaysGoalsView(client))
 }
