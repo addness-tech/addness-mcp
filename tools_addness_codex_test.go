@@ -33,6 +33,18 @@ func TestAddnessCodexToolRegistrationFlags(t *testing.T) {
 	}
 }
 
+func TestAddnessCodexApplyToolRegistrationFlag(t *testing.T) {
+	t.Setenv("ADDNESS_MCP_DISABLE_CODEX_APPLY_TOOL", "")
+	if !shouldRegisterAddnessCodexApplyTool() {
+		t.Fatal("apply tool should be registered by default")
+	}
+
+	t.Setenv("ADDNESS_MCP_DISABLE_CODEX_APPLY_TOOL", "1")
+	if shouldRegisterAddnessCodexApplyTool() {
+		t.Fatal("apply tool should not be registered when ADDNESS_MCP_DISABLE_CODEX_APPLY_TOOL=1")
+	}
+}
+
 func TestParseAddnessCodexTodaysGoalsView(t *testing.T) {
 	ids := NewShortIDCache()
 	payload, err := parseAddnessCodexTodaysGoalsView([]byte(`{

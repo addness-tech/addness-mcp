@@ -37,6 +37,18 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "get-todays-goals-view" {
+		if err := runGetTodaysGoalsViewCLI(); err != nil {
+			log.Fatalf("get-todays-goals-view failed: %v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "apply-todays-goals-changes" {
+		if err := runApplyTodaysGoalsChangesCLI(); err != nil {
+			log.Fatalf("apply-todays-goals-changes failed: %v", err)
+		}
+		return
+	}
 
 	baseURL := os.Getenv("ADDNESS_API_URL")
 	if baseURL == "" {
@@ -77,6 +89,13 @@ func shouldRegisterDefaultTools() bool {
 func shouldRegisterAddnessCodexTools() bool {
 	return os.Getenv("ADDNESS_MCP_ENABLE_ADDNESS_CODEX_TOOLS") == "1" ||
 		os.Getenv("ADDNESS_MCP_ONLY_ADDNESS_CODEX_TOOLS") == "1"
+}
+
+// shouldRegisterAddnessCodexApplyTool は MCP 経由の即時反映 tool を登録するか。
+// Addness Codex デスクトップでは ADDNESS_MCP_DISABLE_CODEX_APPLY_TOOL=1 とし、
+// サイドバー確認後の CLI (apply-todays-goals-changes) のみで保存する。
+func shouldRegisterAddnessCodexApplyTool() bool {
+	return os.Getenv("ADDNESS_MCP_DISABLE_CODEX_APPLY_TOOL") != "1"
 }
 
 func registerDefaultTools(s *server.MCPServer, client *AddnessClient) {
@@ -153,4 +172,7 @@ func registerDefaultTools(s *server.MCPServer, client *AddnessClient) {
 
 func registerAddnessCodexTools(s *server.MCPServer, client *AddnessClient) {
 	s.AddTool(addnessCodexGetTodaysGoalsViewTool(), handleAddnessCodexGetTodaysGoalsView(client))
+	if shouldRegisterAddnessCodexApplyTool() {
+		s.AddTool(addnessCodexApplyTodaysGoalsChangesTool(), handleAddnessCodexApplyTodaysGoalsChanges(client))
+	}
 }

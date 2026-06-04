@@ -4,12 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
-	"time"
+	"os"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
+
+type addnessCodexGetViewRequest struct {
+	Version  int    `json:"version"`
+	Date     string `json:"date,omitempty"`
+	MemberID string `json:"member_id,omitempty"`
+}
 
 func addnessCodexGetTodaysGoalsViewTool() mcp.Tool {
 	return mcp.NewTool("addness_codex_get_todays_goals_view",
@@ -32,7 +39,7 @@ func handleAddnessCodexGetTodaysGoalsView(client *AddnessClient) server.ToolHand
 		args := req.GetArguments()
 		date := argStr(args, "date")
 		if date == "" {
-			date = time.Now().Format("2006-01-02")
+			date = currentActivityDateString(defaultActivityTimezone, defaultActivityCutoffHour)
 		}
 
 		path := fmt.Sprintf("/api/v2/organizations/%s/todays-goals?date=%s", client.OrganizationID(), url.QueryEscape(date))
@@ -79,22 +86,25 @@ type addnessCodexTodaysGoalsViewMeta struct {
 }
 
 type addnessCodexTodaysGoalsViewNode struct {
-	ID                     string  `json:"id"`
-	ParentID               *string `json:"parentId"`
-	Depth                  int     `json:"depth"`
-	Title                  string  `json:"title"`
-	Status                 *string `json:"status"`
-	CompletedAt            *string `json:"completedAt"`
-	OrderNo                float64 `json:"orderNo"`
-	OwnerName              *string `json:"ownerName,omitempty"`
-	OwnerAvatarURL         *string `json:"ownerAvatarUrl,omitempty"`
-	UnresolvedCommentCount *int    `json:"unresolvedCommentCount,omitempty"`
-	ChildCount             int     `json:"childCount"`
-	IsLeaf                 bool    `json:"isLeaf"`
-	HasRecurring           bool    `json:"hasRecurring"`
-	IsRecurring            bool    `json:"isRecurring"`
-	ExecutionID            *string `json:"executionId,omitempty"`
-	ExecutionStatus        *string `json:"executionStatus,omitempty"`
+	ID                     string   `json:"id"`
+	ParentID               *string  `json:"parentId"`
+	Depth                  int      `json:"depth"`
+	Title                  string   `json:"title"`
+	Status                 *string  `json:"status"`
+	CompletedAt            *string  `json:"completedAt"`
+	OrderNo                float64  `json:"orderNo"`
+	OwnerName              *string  `json:"ownerName,omitempty"`
+	OwnerAvatarURL         *string  `json:"ownerAvatarUrl,omitempty"`
+	OwnerMemberID          *string  `json:"ownerMemberId,omitempty"`
+	UnresolvedCommentCount *int     `json:"unresolvedCommentCount,omitempty"`
+	ChildCount             int      `json:"childCount"`
+	IsLeaf                 bool     `json:"isLeaf"`
+	HasRecurring           bool     `json:"hasRecurring"`
+	IsRecurring            bool     `json:"isRecurring"`
+	IsContext              bool     `json:"isContext"`
+	ExecutionID            *string  `json:"executionId,omitempty"`
+	ExecutionStatus        *string  `json:"executionStatus,omitempty"`
+	Permissions            []string `json:"permissions,omitempty"`
 }
 
 func parseAddnessCodexTodaysGoalsView(data []byte, ids *ShortIDCache, date string, viewingMemberID string) (addnessCodexTodaysGoalsViewPayload, error) {
@@ -119,7 +129,7 @@ func parseAddnessCodexTodaysGoalsView(data []byte, ids *ShortIDCache, date strin
 			completedAt = executionCompletedAt
 		}
 
-		ownerName, ownerAvatarURL := codexOwnerDisplayFields(nm, viewingMemberID)
+		ownerName, ownerAvatarURL, ownerMemberID := codexOwnerDisplayFields(nm, viewingMemberID)
 
 		node := addnessCodexTodaysGoalsViewNode{
 			ID:                     shortID,
@@ -131,12 +141,15 @@ func parseAddnessCodexTodaysGoalsView(data []byte, ids *ShortIDCache, date strin
 			OrderNo:                floatNumber(nm, "orderNo"),
 			OwnerName:              ownerName,
 			OwnerAvatarURL:         ownerAvatarURL,
+			OwnerMemberID:          ownerMemberID,
 			UnresolvedCommentCount: intPtrField(nm, "unresolvedCommentCount"),
 			IsLeaf:                 boolField(nm, "isLeaf"),
 			HasRecurring:           boolField(nm, "hasRecurring"),
 			IsRecurring:            boolField(nm, "isRecurring"),
+			IsContext:              codexIsContextNode(nm),
 			ExecutionID:            executionID,
 			ExecutionStatus:        executionStatus,
+			Permissions:            stringSliceField(nm, "permissions"),
 		}
 		nodes = append(nodes, node)
 	}
@@ -228,12 +241,43 @@ func ownerStringField(raw map[string]any, key string) *string {
 
 // codexOwnerDisplayFields は Codex UI 向けに owner 表示フィールドを返す。
 // 閲覧対象メンバー自身のゴールには ownerName / ownerAvatarUrl を付けない（Web の self view と同じ）。
-func codexOwnerDisplayFields(raw map[string]any, viewingMemberID string) (*string, *string) {
-	ownerMemberID := ownerStringField(raw, "organizationMemberId")
+func codexOwnerDisplayFields(raw map[string]any, viewingMemberID string) (*string, *string, *string) {
+	ownerMemberID := ownerOrganizationMemberID(raw)
 	if ownerMemberID != nil && viewingMemberID != "" && *ownerMemberID == viewingMemberID {
-		return nil, nil
+		return nil, nil, ownerMemberID
 	}
-	return ownerStringField(raw, "name"), ownerAvatarURL(raw)
+	return ownerStringField(raw, "name"), ownerAvatarURL(raw), ownerMemberID
+}
+
+func ownerOrganizationMemberID(raw map[string]any) *string {
+	owner, ok := raw["owner"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return stringPtrField(owner, "organizationMemberId")
+}
+
+func codexIsContextNode(raw map[string]any) bool {
+	if value, ok := raw["isContext"].(bool); ok {
+		return value
+	}
+	kind := stringField(raw, "kind")
+	return kind == "context" || kind == "CONTEXT"
+}
+
+func stringSliceField(raw map[string]any, key string) []string {
+	value, ok := raw[key].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(value))
+	for _, item := range value {
+		str, ok := item.(string)
+		if ok && str != "" {
+			out = append(out, str)
+		}
+	}
+	return out
 }
 
 func ownerAvatarURL(raw map[string]any) *string {
@@ -263,4 +307,51 @@ func executionFields(raw map[string]any, ids *ShortIDCache) (*string, *string, *
 	return shortenOptionalID(ids, stringField(execution, "id")),
 		stringPtrField(execution, "status"),
 		stringPtrField(execution, "completedAt")
+}
+
+func runGetTodaysGoalsViewCLI() error {
+	raw, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+	var request addnessCodexGetViewRequest
+	if err := json.Unmarshal(raw, &request); err != nil {
+		return fmt.Errorf("invalid stdin JSON: %w", err)
+	}
+	if request.Version != 1 {
+		return fmt.Errorf("unsupported version: %d", request.Version)
+	}
+
+	baseURL := os.Getenv("ADDNESS_API_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
+	}
+	ids := NewShortIDCache()
+	client := NewAddnessClient(baseURL, ids)
+	if token := os.Getenv("ADDNESS_API_TOKEN"); token != "" {
+		client.SetToken(token)
+	} else if token := os.Getenv("ADDNESS_TOKEN"); token != "" {
+		client.SetToken(token)
+	} else if token := os.Getenv("ADDNESS_API_KEY"); token != "" {
+		client.SetToken(token)
+	}
+
+	date := request.Date
+	if date == "" {
+		date = currentActivityDateString(defaultActivityTimezone, defaultActivityCutoffHour)
+	}
+	if err := requireOrg(client); err != nil {
+		return err
+	}
+
+	result, err := fetchAddnessCodexTodaysGoalsView(context.Background(), client, date, request.MemberID)
+	if err != nil {
+		return err
+	}
+	out, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	_, err = os.Stdout.Write(out)
+	return err
 }
