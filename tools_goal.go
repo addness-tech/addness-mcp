@@ -339,7 +339,7 @@ func findTodaysExecution(ctx context.Context, client *AddnessClient, objectiveID
 		return executionLookupResult{}, nil
 	}
 
-	today := currentActivityDateString(defaultActivityTimezone, defaultActivityCutoffHour)
+	today := time.Now().Format("2006-01-02")
 	path := fmt.Sprintf("/api/v2/organizations/%s/todays-goals?date=%s", orgID, today)
 	data, err := client.Get(ctx, path)
 	if err != nil {

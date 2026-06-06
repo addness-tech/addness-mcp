@@ -156,8 +156,8 @@ func (c *AddnessClient) do(ctx context.Context, method, path string, body io.Rea
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	// V1 team endpoints require X-Organization-ID header.
-	// V2 endpoints use org ID from the URL path. /organizations/me is user-scoped.
-	if orgID != "" && !isOrganizationAgnosticAPIPath(path) {
+	// V2 endpoints use org ID from the URL path.
+	if orgID != "" {
 		req.Header.Set("X-Organization-ID", orgID)
 	}
 
@@ -177,10 +177,6 @@ func (c *AddnessClient) do(ctx context.Context, method, path string, body io.Rea
 	}
 
 	return data, nil
-}
-
-func isOrganizationAgnosticAPIPath(path string) bool {
-	return path == "/api/v2/organizations/me"
 }
 
 func (c *AddnessClient) Get(ctx context.Context, path string) ([]byte, error) {

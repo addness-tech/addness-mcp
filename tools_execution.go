@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -36,7 +37,7 @@ func handleListTodaysGoals(client *AddnessClient) server.ToolHandlerFunc {
 		args := req.GetArguments()
 		date := argStr(args, "date")
 		if date == "" {
-			date = currentActivityDateString(defaultActivityTimezone, defaultActivityCutoffHour)
+			date = time.Now().Format("2006-01-02")
 		}
 
 		path := fmt.Sprintf("/api/v2/organizations/%s/todays-goals?date=%s", client.OrganizationID(), url.QueryEscape(date))
