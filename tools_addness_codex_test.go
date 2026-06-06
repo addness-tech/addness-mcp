@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -30,6 +32,15 @@ func TestAddnessCodexToolRegistrationFlags(t *testing.T) {
 	}
 	if !shouldRegisterAddnessCodexTools() {
 		t.Fatal("Addness Codex tools should be registered in Addness Codex-only mode")
+	}
+}
+
+func TestAddnessCodexOrganizationTools(t *testing.T) {
+	if addnessCodexListOrganizationsTool().Name != "addness_codex_list_organizations" {
+		t.Fatal("unexpected Addness Codex list organizations tool name")
+	}
+	if addnessCodexSwitchOrganizationTool().Name != "addness_codex_switch_organization" {
+		t.Fatal("unexpected Addness Codex switch organization tool name")
 	}
 }
 
@@ -141,6 +152,60 @@ func TestParseAddnessCodexTodaysGoalsView(t *testing.T) {
 
 	if _, err := json.Marshal(payload); err != nil {
 		t.Fatalf("payload should be JSON serializable: %v", err)
+	}
+}
+
+func TestEnsureAddnessCodexOrganizationSelectedAutoSelectsSingleOrg(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/organizations/me":
+			_, _ = w.Write([]byte(`{"data":{"organizations":[{"id":"org-single-000000000000000000000001","name":"アドネス株式会社","planType":"PRO"}]}}`))
+		case "/api/v2/members":
+			_, _ = w.Write([]byte(`{"data":{"members":[{"id":"member-self-000000000000000000001","isCurrentUser":true}]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewAddnessClient(server.URL, NewShortIDCache())
+	client.SetToken("sk-test")
+	client.SetOrganization("")
+
+	if err := ensureAddnessCodexOrganizationSelected(t.Context(), client); err != nil {
+		t.Fatalf("ensureAddnessCodexOrganizationSelected returned error: %v", err)
+	}
+	if client.OrganizationID() == "" {
+		t.Fatal("expected organization to be selected")
+	}
+	if client.MemberID() != "member-self-000000000000000000001" {
+		t.Fatalf("expected member id to be resolved, got %q", client.MemberID())
+	}
+}
+
+func TestEnsureAddnessCodexOrganizationSelectedRequiresExplicitChoiceForMultipleOrgs(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/organizations/me" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"organizations":[{"id":"org-one-000000000000000000000001","name":"One","planType":"PRO"},{"id":"org-two-000000000000000000000002","name":"Two","planType":"PRO"}]}}`))
+	}))
+	defer server.Close()
+
+	client := NewAddnessClient(server.URL, NewShortIDCache())
+	client.SetToken("sk-test")
+	client.SetOrganization("")
+
+	if err := ensureAddnessCodexOrganizationSelected(t.Context(), client); err == nil {
+		t.Fatal("expected error for multiple organizations")
+	}
+	if client.OrganizationID() != "" {
+		t.Fatalf("organization should not be selected, got %q", client.OrganizationID())
 	}
 }
 

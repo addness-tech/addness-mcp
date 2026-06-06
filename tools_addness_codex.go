@@ -30,9 +30,33 @@ func addnessCodexGetTodaysGoalsViewTool() mcp.Tool {
 	)
 }
 
+func addnessCodexListOrganizationsTool() mcp.Tool {
+	return mcp.NewTool("addness_codex_list_organizations",
+		mcp.WithDescription("Addness Codex専用。today goals取得前に、選択可能なorganization一覧と現在の選択状態を確認するread-only tool。"),
+	)
+}
+
+func addnessCodexSwitchOrganizationTool() mcp.Tool {
+	return mcp.NewTool("addness_codex_switch_organization",
+		mcp.WithDescription("Addness Codex専用。today goals取得に使うorganizationを切り替える。"),
+		mcp.WithString("organization_id",
+			mcp.Required(),
+			mcp.Description("Organization ID (short ID)"),
+		),
+	)
+}
+
+func handleAddnessCodexListOrganizations(client *AddnessClient) server.ToolHandlerFunc {
+	return handleListOrganizations(client)
+}
+
+func handleAddnessCodexSwitchOrganization(client *AddnessClient) server.ToolHandlerFunc {
+	return handleSwitchOrganization(client)
+}
+
 func handleAddnessCodexGetTodaysGoalsView(client *AddnessClient) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if err := requireOrg(client); err != nil {
+		if err := ensureAddnessCodexOrganizationSelected(ctx, client); err != nil {
 			return errResult(err.Error()), nil
 		}
 
@@ -71,6 +95,32 @@ func handleAddnessCodexGetTodaysGoalsView(client *AddnessClient) server.ToolHand
 		}
 		return textResult(string(out)), nil
 	}
+}
+
+func ensureAddnessCodexOrganizationSelected(ctx context.Context, client *AddnessClient) error {
+	if client.OrganizationID() != "" {
+		return nil
+	}
+
+	data, err := client.Get(ctx, "/api/v2/organizations/me")
+	if err != nil {
+		return fmt.Errorf("no organization selected and failed to list organizations: %w", err)
+	}
+	orgs, err := parseOrganizations(data, client.ids)
+	if err != nil {
+		return fmt.Errorf("no organization selected and failed to parse organizations: %w", err)
+	}
+	if len(orgs) != 1 {
+		return fmt.Errorf("no organization selected: use switch_organization first")
+	}
+
+	client.SetOrganization(orgs[0].fullID)
+	if memberData, err := client.Get(ctx, "/api/v2/members?pageSize=100"); err == nil {
+		if mid := findCurrentMemberID(memberData); mid != "" {
+			client.SetMemberID(mid)
+		}
+	}
+	return nil
 }
 
 type addnessCodexTodaysGoalsViewPayload struct {
@@ -340,7 +390,7 @@ func runGetTodaysGoalsViewCLI() error {
 	if date == "" {
 		date = currentActivityDateString(defaultActivityTimezone, defaultActivityCutoffHour)
 	}
-	if err := requireOrg(client); err != nil {
+	if err := ensureAddnessCodexOrganizationSelected(context.Background(), client); err != nil {
 		return err
 	}
 

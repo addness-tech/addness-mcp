@@ -49,6 +49,18 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "list-organizations" {
+		if err := runListOrganizationsCLI(); err != nil {
+			log.Fatalf("list-organizations failed: %v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "switch-organization" {
+		if err := runSwitchOrganizationCLI(); err != nil {
+			log.Fatalf("switch-organization failed: %v", err)
+		}
+		return
+	}
 
 	baseURL := os.Getenv("ADDNESS_API_URL")
 	if baseURL == "" {
@@ -171,6 +183,8 @@ func registerDefaultTools(s *server.MCPServer, client *AddnessClient) {
 }
 
 func registerAddnessCodexTools(s *server.MCPServer, client *AddnessClient) {
+	s.AddTool(addnessCodexListOrganizationsTool(), handleAddnessCodexListOrganizations(client))
+	s.AddTool(addnessCodexSwitchOrganizationTool(), handleAddnessCodexSwitchOrganization(client))
 	s.AddTool(addnessCodexGetTodaysGoalsViewTool(), handleAddnessCodexGetTodaysGoalsView(client))
 	if shouldRegisterAddnessCodexApplyTool() {
 		s.AddTool(addnessCodexApplyTodaysGoalsChangesTool(), handleAddnessCodexApplyTodaysGoalsChanges(client))
