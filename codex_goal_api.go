@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // codexCreateObjectiveForDate は今日のゴールに objective を作成して追加する。
@@ -182,16 +181,6 @@ func codexDeleteObjectives(ctx context.Context, client *AddnessClient, goalIDs [
 	body := map[string]any{"objectiveIds": resolved}
 	_, err := client.Delete(ctx, "/api/v2/objectives/delete", body)
 	return err
-}
-
-func codexCompleteObjectiveNow(ctx context.Context, client *AddnessClient, goalID string, undo bool) error {
-	var completedAt any
-	if undo {
-		completedAt = nil
-	} else {
-		completedAt = time.Now().UTC().Format(time.RFC3339)
-	}
-	return codexPatchObjective(ctx, client, goalID, map[string]any{"completedAt": completedAt})
 }
 
 func decodeAPIPayload(data []byte, target any) error {
