@@ -25,12 +25,12 @@ func codexCreateObjectiveForDate(
 	}
 
 	body := map[string]any{
-		"title":          title,
-		"organizationId": client.OrganizationID(),
+		"title":             title,
+		"organizationId":    client.OrganizationID(),
 		"parentObjectiveId": parentObjectiveID,
-		"orderNo":        orderNo,
-		"ownerId":        memberID,
-		"date":           date,
+		"orderNo":           orderNo,
+		"ownerId":           memberID,
+		"date":              date,
 	}
 	data, err := client.Post(ctx, "/api/v2/objective/create", body)
 	if err != nil {

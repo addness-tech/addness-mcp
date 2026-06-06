@@ -14,9 +14,9 @@ import (
 const addnessCodexApplySource = "addness-mcp:addness_codex_apply_todays_goals_changes"
 
 type addnessCodexApplyRequest struct {
-	Version  int                      `json:"version"`
-	Date     string                   `json:"date"`
-	MemberID string                   `json:"member_id,omitempty"`
+	Version  int                       `json:"version"`
+	Date     string                    `json:"date"`
+	MemberID string                    `json:"member_id,omitempty"`
 	Changes  []addnessCodexApplyChange `json:"changes"`
 }
 
@@ -37,11 +37,11 @@ type addnessCodexApplyChange struct {
 }
 
 type addnessCodexApplyFailure struct {
-	OK            bool                    `json:"ok"`
-	FailedIndex   int                     `json:"failed_index"`
-	FailedChange  addnessCodexApplyChange `json:"failed_change"`
-	Error         string                  `json:"error"`
-	AppliedCount  int                     `json:"applied_count"`
+	OK            bool                                `json:"ok"`
+	FailedIndex   int                                 `json:"failed_index"`
+	FailedChange  addnessCodexApplyChange             `json:"failed_change"`
+	Error         string                              `json:"error"`
+	AppliedCount  int                                 `json:"applied_count"`
 	PartialResult *addnessCodexTodaysGoalsViewPayload `json:"partial_result,omitempty"`
 }
 
@@ -119,11 +119,11 @@ func applyAddnessCodexTodaysGoalsChanges(
 			partial, _ := fetchAddnessCodexTodaysGoalsView(ctx, client, date, request.MemberID)
 			return addnessCodexTodaysGoalsViewPayload{}, &applyChangesError{
 				body: addnessCodexApplyFailure{
-					OK:           false,
-					FailedIndex:  index,
-					FailedChange: change,
-					Error:        err.Error(),
-					AppliedCount: applied,
+					OK:            false,
+					FailedIndex:   index,
+					FailedChange:  change,
+					Error:         err.Error(),
+					AppliedCount:  applied,
 					PartialResult: &partial,
 				},
 			}
