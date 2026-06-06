@@ -126,38 +126,26 @@ func runSwitchOrganizationCLI() error {
 	ctx := context.Background()
 	previousOrgID := client.OrganizationID()
 	previousMemberID := client.MemberID()
-	_, err = client.ids.Resolve(request.OrganizationID)
+	selectedOrg, err := resolveAddnessCodexOrganization(ctx, client, request.OrganizationID)
 	if err != nil {
-		data, listErr := client.Get(ctx, "/api/v2/organizations/me")
-		if listErr == nil {
-			_, _ = parseOrganizations(data, client.ids)
-		}
+		return err
 	}
 
-	client.SetOrganization(request.OrganizationID)
+	client.SetOrganization(selectedOrg.fullID)
 	if memberData, err := client.Get(ctx, "/api/v2/members?pageSize=100"); err == nil {
 		if mid := findCurrentMemberID(memberData); mid != "" {
 			client.SetMemberID(mid)
 		}
 	}
 
-	orgs, err := fetchAddnessCodexOrganizations(ctx, client)
-	if err != nil {
+	if _, err := fetchAddnessCodexOrganizations(ctx, client); err != nil {
 		client.restoreSession(previousOrgID, previousMemberID)
 		return err
 	}
-	name := ""
-	for _, org := range orgs.Organizations {
-		if org.ID == client.ids.Shorten(client.OrganizationID()) {
-			name = org.Name
-			break
-		}
-	}
-
 	result := addnessCodexSwitchOrganizationResult{
 		OK:               true,
 		OrganizationID:   client.ids.Shorten(client.OrganizationID()),
-		OrganizationName: name,
+		OrganizationName: selectedOrg.Name,
 	}
 	out, err := json.Marshal(result)
 	if err != nil {
@@ -165,4 +153,23 @@ func runSwitchOrganizationCLI() error {
 	}
 	_, err = os.Stdout.Write(out)
 	return err
+}
+
+func resolveAddnessCodexOrganization(ctx context.Context, client *AddnessClient, organizationID string) (orgInfo, error) {
+	data, err := client.Get(ctx, "/api/v2/organizations/me")
+	if err != nil {
+		return orgInfo{}, fmt.Errorf("list organizations: %w", err)
+	}
+	orgs, err := parseOrganizations(data, client.ids)
+	if err != nil {
+		return orgInfo{}, fmt.Errorf("parse organizations: %w", err)
+	}
+
+	resolvedID := client.ids.resolveOrFallback(organizationID)
+	for _, org := range orgs {
+		if org.fullID == resolvedID || org.ID == organizationID {
+			return org, nil
+		}
+	}
+	return orgInfo{}, fmt.Errorf("organization_id not found: %s", organizationID)
 }

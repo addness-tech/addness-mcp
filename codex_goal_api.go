@@ -13,15 +13,18 @@ func codexCreateObjectiveForDate(
 	client *AddnessClient,
 	date string,
 	title string,
+	ownerMemberID string,
 	parentObjectiveID *string,
 	orderNo float64,
 ) (string, error) {
 	if err := requireOrg(client); err != nil {
 		return "", err
 	}
-	memberID := client.MemberID()
-	if memberID == "" {
-		return "", fmt.Errorf("member ID not resolved: use switch_organization first")
+	if ownerMemberID == "" {
+		ownerMemberID = client.MemberID()
+	}
+	if ownerMemberID == "" {
+		return "", fmt.Errorf("owner member ID not resolved: use switch_organization first")
 	}
 
 	body := map[string]any{
@@ -29,7 +32,7 @@ func codexCreateObjectiveForDate(
 		"organizationId":    client.OrganizationID(),
 		"parentObjectiveId": parentObjectiveID,
 		"orderNo":           orderNo,
-		"ownerId":           memberID,
+		"ownerId":           ownerMemberID,
 		"date":              date,
 	}
 	data, err := client.Post(ctx, "/api/v2/objective/create", body)
@@ -137,6 +140,10 @@ func resolveCodexGoalID(id string, idMap map[string]string) string {
 	return id
 }
 
+func resolveCodexGoalFullID(client *AddnessClient, id string, idMap map[string]string) (string, error) {
+	return client.ids.Resolve(resolveCodexGoalID(id, idMap))
+}
+
 func codexMoveObjectiveParent(
 	ctx context.Context,
 	client *AddnessClient,
@@ -145,13 +152,13 @@ func codexMoveObjectiveParent(
 	idMap map[string]string,
 	orderNo float64,
 ) error {
-	fullGoalID, err := client.ids.Resolve(resolveCodexGoalID(goalID, idMap))
+	fullGoalID, err := resolveCodexGoalFullID(client, goalID, idMap)
 	if err != nil {
 		return err
 	}
 	body := map[string]any{"orderNo": orderNo}
 	if newParentID != "" {
-		fullParentID, err := client.ids.Resolve(resolveCodexGoalID(newParentID, idMap))
+		fullParentID, err := resolveCodexGoalFullID(client, newParentID, idMap)
 		if err != nil {
 			return err
 		}

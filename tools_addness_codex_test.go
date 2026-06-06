@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -185,6 +187,30 @@ func TestEnsureAddnessCodexOrganizationSelectedAutoSelectsSingleOrg(t *testing.T
 	}
 }
 
+func TestEnsureAddnessCodexCurrentMemberResolvedForExistingOrg(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/members" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"members":[{"id":"member-self-000000000000000000001","isCurrentUser":true}]}}`))
+	}))
+	defer server.Close()
+
+	client := NewAddnessClient(server.URL, NewShortIDCache())
+	client.SetToken("sk-test")
+	client.SetOrganization("org-single-000000000000000000000001")
+
+	if err := ensureAddnessCodexCurrentMemberResolved(t.Context(), client); err != nil {
+		t.Fatalf("ensureAddnessCodexCurrentMemberResolved returned error: %v", err)
+	}
+	if client.MemberID() != "member-self-000000000000000000001" {
+		t.Fatalf("expected member id to be resolved, got %q", client.MemberID())
+	}
+}
+
 func TestEnsureAddnessCodexOrganizationSelectedRequiresExplicitChoiceForMultipleOrgs(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
@@ -256,5 +282,115 @@ func TestParseAddnessCodexTodaysGoalsView_OmitsOwnerFieldsForViewingMember(t *te
 	}
 	if payload.Nodes[1].OwnerAvatarURL == nil || *payload.Nodes[1].OwnerAvatarURL != "https://example.com/other.png" {
 		t.Fatalf("other goal should keep owner avatar, got %#v", payload.Nodes[1].OwnerAvatarURL)
+	}
+}
+
+func TestApplyAddnessCodexCreateUsesViewedMemberAndFullParentID(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	var createBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/objective/create":
+			body, _ := io.ReadAll(r.Body)
+			if err := json.Unmarshal(body, &createBody); err != nil {
+				t.Fatalf("invalid create body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"data":{"id":"goal-created-000000000000000000000001"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/organizations/org-main-000000000000000000000001/todays-goals":
+			_, _ = w.Write([]byte(`{"data":{"nodes":[]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ids := NewShortIDCache()
+	parentShortID := ids.Shorten("goal-parent-000000000000000000000001")
+	memberShortID := ids.Shorten("member-other-000000000000000000000001")
+	client := NewAddnessClient(server.URL, ids)
+	client.SetToken("sk-test")
+	client.SetOrganization("org-main-000000000000000000000001")
+	client.SetMemberID("member-self-000000000000000000000001")
+
+	request := addnessCodexApplyRequest{
+		Version:  1,
+		Date:     "2026-06-07",
+		MemberID: memberShortID,
+		Changes: []addnessCodexApplyChange{{
+			Type:     "create_goal",
+			TempID:   "tmp-1",
+			Title:    "他メンバーの新規ゴール",
+			ParentID: &parentShortID,
+		}},
+	}
+	if _, err := applyAddnessCodexTodaysGoalsChanges(t.Context(), client, request); err != nil {
+		t.Fatalf("applyAddnessCodexTodaysGoalsChanges returned error: %v", err)
+	}
+
+	if createBody["ownerId"] != "member-other-000000000000000000000001" {
+		t.Fatalf("expected viewed member ownerId, got %#v", createBody["ownerId"])
+	}
+	if createBody["parentObjectiveId"] != "goal-parent-000000000000000000000001" {
+		t.Fatalf("expected full parentObjectiveId, got %#v", createBody["parentObjectiveId"])
+	}
+}
+
+func TestResolveAddnessCodexOrganizationRejectsUnknownID(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/organizations/me" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"organizations":[{"id":"org-known-000000000000000000000001","name":"Known","planType":"PRO"}]}}`))
+	}))
+	defer server.Close()
+
+	client := NewAddnessClient(server.URL, NewShortIDCache())
+	client.SetToken("sk-test")
+
+	if _, err := resolveAddnessCodexOrganization(t.Context(), client, "org-missing-000000000000000000000001"); err == nil {
+		t.Fatal("expected unknown organization id to be rejected")
+	}
+}
+
+func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	patchCalled := false
+	goalID := "goal-recurring-000000000000000000000001"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/organizations/org-main-000000000000000000000001/todays-goals":
+			_, _ = fmt.Fprintf(w, `{"data":[{"id":%q,"title":"定常ゴール","hasRecurring":true}]}`, goalID)
+		case r.Method == http.MethodPatch:
+			patchCalled = true
+			http.Error(w, "should not patch recurring objective", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ids := NewShortIDCache()
+	goalShortID := ids.Shorten(goalID)
+	client := NewAddnessClient(server.URL, ids)
+	client.SetToken("sk-test")
+	client.SetOrganization("org-main-000000000000000000000001")
+	client.SetMemberID("member-self-000000000000000000000001")
+
+	completedAt := "2026-06-07T01:02:03Z"
+	err := applyCodexStatusChange(t.Context(), client, addnessCodexApplyChange{
+		Type:        "update_status",
+		GoalID:      goalShortID,
+		CompletedAt: &completedAt,
+	}, map[string]string{})
+	if err == nil {
+		t.Fatal("expected recurring status update without execution_id to be rejected")
+	}
+	if patchCalled {
+		t.Fatal("recurring objective should not be patched without execution_id")
 	}
 }

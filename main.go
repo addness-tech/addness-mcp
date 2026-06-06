@@ -84,6 +84,8 @@ func main() {
 
 	if shouldRegisterDefaultTools() {
 		registerDefaultTools(s, client)
+	} else if shouldRegisterAddnessCodexTools() {
+		registerAddnessCodexBootstrapTools(s, client)
 	}
 	if shouldRegisterAddnessCodexTools() {
 		registerAddnessCodexTools(s, client)
@@ -180,6 +182,12 @@ func registerDefaultTools(s *server.MCPServer, client *AddnessClient) {
 	s.AddTool(getDeliverableTool(), handleGetDeliverable(client))
 	s.AddTool(createDeliverableTool(), handleCreateDeliverable(client))
 	s.AddTool(deleteDeliverableTool(), handleDeleteDeliverable(client))
+}
+
+func registerAddnessCodexBootstrapTools(s *server.MCPServer, client *AddnessClient) {
+	s.AddTool(authLoginTool(), handleAuthLogin(client))
+	s.AddTool(listOrganizationsTool(), handleListOrganizations(client))
+	s.AddTool(switchOrganizationTool(), handleSwitchOrganization(client))
 }
 
 func registerAddnessCodexTools(s *server.MCPServer, client *AddnessClient) {

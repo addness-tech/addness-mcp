@@ -111,11 +111,16 @@ func applyAddnessCodexTodaysGoalsChanges(
 		return fetchAddnessCodexTodaysGoalsView(ctx, client, date, request.MemberID)
 	}
 
+	targetMemberID, err := resolveCodexApplyTargetMemberID(client, request.MemberID)
+	if err != nil {
+		return addnessCodexTodaysGoalsViewPayload{}, err
+	}
+
 	idMap := map[string]string{}
 	applied := 0
 
 	for index, change := range request.Changes {
-		if err := applySingleCodexChange(ctx, client, date, change, idMap); err != nil {
+		if err := applySingleCodexChange(ctx, client, date, targetMemberID, change, idMap); err != nil {
 			partial, _ := fetchAddnessCodexTodaysGoalsView(ctx, client, date, request.MemberID)
 			return addnessCodexTodaysGoalsViewPayload{}, &applyChangesError{
 				body: addnessCodexApplyFailure{
@@ -143,12 +148,13 @@ func applySingleCodexChange(
 	ctx context.Context,
 	client *AddnessClient,
 	date string,
+	targetMemberID string,
 	change addnessCodexApplyChange,
 	idMap map[string]string,
 ) error {
 	switch change.Type {
 	case "create_goal":
-		return applyCodexCreateChange(ctx, client, date, change, idMap)
+		return applyCodexCreateChange(ctx, client, date, targetMemberID, change, idMap)
 	case "move_goal":
 		goalID := resolveCodexGoalID(change.GoalID, idMap)
 		orderNo := 0.0
@@ -182,6 +188,7 @@ func applyCodexCreateChange(
 	ctx context.Context,
 	client *AddnessClient,
 	date string,
+	targetMemberID string,
 	change addnessCodexApplyChange,
 	idMap map[string]string,
 ) error {
@@ -197,10 +204,13 @@ func applyCodexCreateChange(
 	}
 	var parentID *string
 	if change.ParentID != nil && *change.ParentID != "" {
-		resolved := resolveCodexGoalID(*change.ParentID, idMap)
+		resolved, err := resolveCodexGoalFullID(client, *change.ParentID, idMap)
+		if err != nil {
+			return err
+		}
 		parentID = &resolved
 	}
-	createdID, err := codexCreateObjectiveForDate(ctx, client, date, change.Title, parentID, orderNo)
+	createdID, err := codexCreateObjectiveForDate(ctx, client, date, change.Title, targetMemberID, parentID, orderNo)
 	if err != nil {
 		return err
 	}
@@ -219,6 +229,17 @@ func applyCodexStatusChange(
 		execID := resolveCodexGoalID(change.ExecutionID, idMap)
 		return codexUpdateExecutionStatusFields(ctx, client, execID, change.Status, change.CompletedAt)
 	}
+	if change.CompletedAt != nil {
+		fullGoalID, err := client.ids.Resolve(goalID)
+		if err != nil {
+			return err
+		}
+		if result, err := findTodaysExecution(ctx, client, fullGoalID); err != nil {
+			return fmt.Errorf("recurring status lookup failed: %w", err)
+		} else if result.isRecurring {
+			return fmt.Errorf("recurring goal status update requires execution_id")
+		}
+	}
 	if change.CompletedAt != nil && *change.CompletedAt != "" {
 		undo := false
 		return codexCompleteObjectiveNow(ctx, client, goalID, undo)
@@ -227,6 +248,16 @@ func applyCodexStatusChange(
 		return codexCompleteObjectiveNow(ctx, client, goalID, true)
 	}
 	return codexUpdateObjectiveStatusFields(ctx, client, goalID, change.Status, change.CompletedAt)
+}
+
+func resolveCodexApplyTargetMemberID(client *AddnessClient, memberID string) (string, error) {
+	if memberID != "" {
+		return client.ids.Resolve(memberID)
+	}
+	if myID := client.MemberID(); myID != "" {
+		return myID, nil
+	}
+	return "", fmt.Errorf("member ID not resolved: use switch_organization first")
 }
 
 func fetchAddnessCodexTodaysGoalsView(
@@ -244,7 +275,12 @@ func fetchAddnessCodexTodaysGoalsView(
 		}
 		viewingMemberID = resolved
 		path += "&member_id=" + resolved
-	} else if myID := client.MemberID(); myID != "" {
+	} else {
+		if err := ensureAddnessCodexCurrentMemberResolved(ctx, client); err != nil {
+			return addnessCodexTodaysGoalsViewPayload{}, err
+		}
+		myID := client.MemberID()
+		viewingMemberID = myID
 		path += "&member_id=" + myID
 	}
 	data, err := client.Get(ctx, path)

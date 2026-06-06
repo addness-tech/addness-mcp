@@ -75,7 +75,12 @@ func handleAddnessCodexGetTodaysGoalsView(client *AddnessClient) server.ToolHand
 			}
 			viewingMemberID = resolved
 			path += "&member_id=" + url.QueryEscape(resolved)
-		} else if myID := client.MemberID(); myID != "" {
+		} else {
+			if err := ensureAddnessCodexCurrentMemberResolved(ctx, client); err != nil {
+				return errResult(err.Error()), nil
+			}
+			myID := client.MemberID()
+			viewingMemberID = myID
 			path += "&member_id=" + url.QueryEscape(myID)
 		}
 
@@ -115,12 +120,22 @@ func ensureAddnessCodexOrganizationSelected(ctx context.Context, client *Addness
 	}
 
 	client.SetOrganization(orgs[0].fullID)
-	if memberData, err := client.Get(ctx, "/api/v2/members?pageSize=100"); err == nil {
-		if mid := findCurrentMemberID(memberData); mid != "" {
-			client.SetMemberID(mid)
-		}
+	return ensureAddnessCodexCurrentMemberResolved(ctx, client)
+}
+
+func ensureAddnessCodexCurrentMemberResolved(ctx context.Context, client *AddnessClient) error {
+	if client.MemberID() != "" {
+		return nil
 	}
-	return nil
+	memberData, err := client.Get(ctx, "/api/v2/members?pageSize=100")
+	if err != nil {
+		return fmt.Errorf("current member ID not resolved: %w", err)
+	}
+	if mid := findCurrentMemberID(memberData); mid != "" {
+		client.SetMemberID(mid)
+		return nil
+	}
+	return fmt.Errorf("current member ID not found")
 }
 
 type addnessCodexTodaysGoalsViewPayload struct {
