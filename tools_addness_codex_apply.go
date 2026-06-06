@@ -239,13 +239,7 @@ func applyCodexStatusChange(
 		} else if result.isRecurring {
 			return fmt.Errorf("recurring goal status update requires execution_id")
 		}
-	}
-	if change.CompletedAt != nil && *change.CompletedAt != "" {
-		undo := false
-		return codexCompleteObjectiveNow(ctx, client, goalID, undo)
-	}
-	if change.CompletedAt != nil && *change.CompletedAt == "" {
-		return codexCompleteObjectiveNow(ctx, client, goalID, true)
+		return codexUpdateObjectiveStatusFields(ctx, client, goalID, change.Status, change.CompletedAt)
 	}
 	return codexUpdateObjectiveStatusFields(ctx, client, goalID, change.Status, change.CompletedAt)
 }
@@ -267,7 +261,7 @@ func fetchAddnessCodexTodaysGoalsView(
 	memberID string,
 ) (addnessCodexTodaysGoalsViewPayload, error) {
 	path := fmt.Sprintf("/api/v2/organizations/%s/todays-goals?date=%s", client.OrganizationID(), date)
-	viewingMemberID := client.MemberID()
+	viewingMemberID := ""
 	if memberID != "" {
 		resolved, err := client.ids.Resolve(memberID)
 		if err != nil {

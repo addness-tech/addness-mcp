@@ -364,7 +364,7 @@ func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/organizations/org-main-000000000000000000000001/todays-goals":
-			_, _ = fmt.Fprintf(w, `{"data":[{"id":%q,"title":"定常ゴール","hasRecurring":true}]}`, goalID)
+			_, _ = fmt.Fprintf(w, `{"data":{"nodes":[{"id":%q,"title":"定常ゴール","hasRecurring":true}]}}`, goalID)
 		case r.Method == http.MethodPatch:
 			patchCalled = true
 			http.Error(w, "should not patch recurring objective", http.StatusInternalServerError)
@@ -392,5 +392,46 @@ func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T)
 	}
 	if patchCalled {
 		t.Fatal("recurring objective should not be patched without execution_id")
+	}
+}
+
+func TestApplyAddnessCodexStatusPreservesProvidedCompletedAt(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	var patchBody map[string]any
+	goalID := "goal-normal-000000000000000000000001"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/organizations/org-main-000000000000000000000001/todays-goals":
+			_, _ = fmt.Fprintf(w, `{"data":{"nodes":[{"id":%q,"title":"通常ゴール","hasRecurring":false}]}}`, goalID)
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/v2/objectives/"+goalID:
+			body, _ := io.ReadAll(r.Body)
+			if err := json.Unmarshal(body, &patchBody); err != nil {
+				t.Fatalf("invalid patch body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"data":{"id":"goal-normal-000000000000000000000001"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ids := NewShortIDCache()
+	goalShortID := ids.Shorten(goalID)
+	client := NewAddnessClient(server.URL, ids)
+	client.SetToken("sk-test")
+	client.SetOrganization("org-main-000000000000000000000001")
+	client.SetMemberID("member-self-000000000000000000000001")
+
+	completedAt := "2026-06-07T01:02:03Z"
+	if err := applyCodexStatusChange(t.Context(), client, addnessCodexApplyChange{
+		Type:        "update_status",
+		GoalID:      goalShortID,
+		CompletedAt: &completedAt,
+	}, map[string]string{}); err != nil {
+		t.Fatalf("applyCodexStatusChange returned error: %v", err)
+	}
+	if patchBody["completedAt"] != completedAt {
+		t.Fatalf("expected provided completedAt to be preserved, got %#v", patchBody["completedAt"])
 	}
 }

@@ -67,7 +67,7 @@ func handleAddnessCodexGetTodaysGoalsView(client *AddnessClient) server.ToolHand
 		}
 
 		path := fmt.Sprintf("/api/v2/organizations/%s/todays-goals?date=%s", client.OrganizationID(), url.QueryEscape(date))
-		viewingMemberID := client.MemberID()
+		viewingMemberID := ""
 		if memberID := argStr(args, "member_id"); memberID != "" {
 			resolved, err := client.ids.Resolve(memberID)
 			if err != nil {
