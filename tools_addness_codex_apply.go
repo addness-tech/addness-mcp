@@ -175,7 +175,7 @@ func applySingleCodexChange(
 		}
 		return codexUpdateObjectiveTitle(ctx, client, goalID, change.Title)
 	case "update_status":
-		return applyCodexStatusChange(ctx, client, date, change, idMap)
+		return applyCodexStatusChange(ctx, client, date, targetMemberID, change, idMap)
 	case "delete_goal":
 		goalID := resolveCodexGoalID(change.GoalID, idMap)
 		return codexDeleteObjectives(ctx, client, []string{goalID})
@@ -222,6 +222,7 @@ func applyCodexStatusChange(
 	ctx context.Context,
 	client *AddnessClient,
 	date string,
+	viewingMemberID string,
 	change addnessCodexApplyChange,
 	idMap map[string]string,
 ) error {
@@ -235,7 +236,7 @@ func applyCodexStatusChange(
 		if err != nil {
 			return err
 		}
-		if result, err := findCodexExecutionOnDate(ctx, client, fullGoalID, date); err != nil {
+		if result, err := findCodexExecutionOnDate(ctx, client, fullGoalID, date, viewingMemberID); err != nil {
 			return fmt.Errorf("recurring status lookup failed: %w", err)
 		} else if result.isRecurring {
 			return fmt.Errorf("recurring goal status update requires execution_id")
@@ -245,13 +246,22 @@ func applyCodexStatusChange(
 	return codexUpdateObjectiveStatusFields(ctx, client, goalID, change.Status, change.CompletedAt)
 }
 
-func findCodexExecutionOnDate(ctx context.Context, client *AddnessClient, objectiveID string, date string) (executionLookupResult, error) {
+func findCodexExecutionOnDate(
+	ctx context.Context,
+	client *AddnessClient,
+	objectiveID string,
+	date string,
+	viewingMemberID string,
+) (executionLookupResult, error) {
 	orgID := client.OrganizationID()
 	if orgID == "" {
 		return executionLookupResult{}, nil
 	}
 
 	path := fmt.Sprintf("/api/v2/organizations/%s/todays-goals?date=%s", orgID, date)
+	if viewingMemberID != "" {
+		path += "&member_id=" + viewingMemberID
+	}
 	data, err := client.Get(ctx, path)
 	if err != nil {
 		return executionLookupResult{}, fmt.Errorf("todays-goals API: %w", err)

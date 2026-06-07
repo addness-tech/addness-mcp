@@ -361,11 +361,13 @@ func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T)
 
 	patchCalled := false
 	lookupDate := ""
+	lookupMemberID := ""
 	goalID := "goal-recurring-000000000000000000000001"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/organizations/org-main-000000000000000000000001/todays-goals":
 			lookupDate = r.URL.Query().Get("date")
+			lookupMemberID = r.URL.Query().Get("member_id")
 			_, _ = fmt.Fprintf(w, `{"data":{"nodes":[{"id":%q,"title":"定常ゴール","hasRecurring":true}]}}`, goalID)
 		case r.Method == http.MethodPatch:
 			patchCalled = true
@@ -384,7 +386,7 @@ func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T)
 	client.SetMemberID("member-self-000000000000000000000001")
 
 	completedAt := "2026-06-07T01:02:03Z"
-	err := applyCodexStatusChange(t.Context(), client, "2026-06-07", addnessCodexApplyChange{
+	err := applyCodexStatusChange(t.Context(), client, "2026-06-07", "member-other-000000000000000000000001", addnessCodexApplyChange{
 		Type:        "update_status",
 		GoalID:      goalShortID,
 		CompletedAt: &completedAt,
@@ -397,6 +399,9 @@ func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T)
 	}
 	if lookupDate != "2026-06-07" {
 		t.Fatalf("expected recurring lookup on payload date, got %q", lookupDate)
+	}
+	if lookupMemberID != "member-other-000000000000000000000001" {
+		t.Fatalf("expected recurring lookup for viewed member, got %q", lookupMemberID)
 	}
 }
 
@@ -429,7 +434,7 @@ func TestApplyAddnessCodexStatusPreservesProvidedCompletedAt(t *testing.T) {
 	client.SetMemberID("member-self-000000000000000000000001")
 
 	completedAt := "2026-06-07T01:02:03Z"
-	if err := applyCodexStatusChange(t.Context(), client, "2026-06-07", addnessCodexApplyChange{
+	if err := applyCodexStatusChange(t.Context(), client, "2026-06-07", "member-self-000000000000000000000001", addnessCodexApplyChange{
 		Type:        "update_status",
 		GoalID:      goalShortID,
 		CompletedAt: &completedAt,
