@@ -124,11 +124,28 @@ func runSwitchOrganizationCLI() error {
 	}
 
 	ctx := context.Background()
-	previousOrgID := client.OrganizationID()
-	previousMemberID := client.MemberID()
-	selectedOrg, err := resolveAddnessCodexOrganization(ctx, client, request.OrganizationID)
+	result, err := switchAddnessCodexOrganization(ctx, client, request.OrganizationID)
 	if err != nil {
 		return err
+	}
+	out, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	_, err = os.Stdout.Write(out)
+	return err
+}
+
+func switchAddnessCodexOrganization(
+	ctx context.Context,
+	client *AddnessClient,
+	organizationID string,
+) (addnessCodexSwitchOrganizationResult, error) {
+	previousOrgID := client.OrganizationID()
+	previousMemberID := client.MemberID()
+	selectedOrg, err := resolveAddnessCodexOrganization(ctx, client, organizationID)
+	if err != nil {
+		return addnessCodexSwitchOrganizationResult{}, err
 	}
 
 	client.SetOrganization(selectedOrg.fullID)
@@ -139,20 +156,22 @@ func runSwitchOrganizationCLI() error {
 	}
 
 	if _, err := fetchAddnessCodexOrganizations(ctx, client); err != nil {
-		client.restoreSession(previousOrgID, previousMemberID)
-		return err
+		restoreAddnessCodexSession(client, previousOrgID, previousMemberID)
+		return addnessCodexSwitchOrganizationResult{}, err
 	}
-	result := addnessCodexSwitchOrganizationResult{
+	return addnessCodexSwitchOrganizationResult{
 		OK:               true,
 		OrganizationID:   client.ids.Shorten(client.OrganizationID()),
 		OrganizationName: selectedOrg.Name,
-	}
-	out, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-	_, err = os.Stdout.Write(out)
-	return err
+	}, nil
+}
+
+func restoreAddnessCodexSession(client *AddnessClient, orgID, memberID string) {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	client.orgID = orgID
+	client.memberID = memberID
+	client.saveSession()
 }
 
 func resolveAddnessCodexOrganization(ctx context.Context, client *AddnessClient, organizationID string) (orgInfo, error) {

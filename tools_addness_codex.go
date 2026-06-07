@@ -47,11 +47,35 @@ func addnessCodexSwitchOrganizationTool() mcp.Tool {
 }
 
 func handleAddnessCodexListOrganizations(client *AddnessClient) server.ToolHandlerFunc {
-	return handleListOrganizations(client)
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		payload, err := fetchAddnessCodexOrganizations(ctx, client)
+		if err != nil {
+			return errResult(err.Error()), nil
+		}
+		out, err := json.Marshal(payload)
+		if err != nil {
+			return errResult(fmt.Sprintf("marshal error: %v", err)), nil
+		}
+		return textResult(string(out)), nil
+	}
 }
 
 func handleAddnessCodexSwitchOrganization(client *AddnessClient) server.ToolHandlerFunc {
-	return handleSwitchOrganization(client)
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		orgID := argStr(req.GetArguments(), "organization_id")
+		if orgID == "" {
+			return errResult("organization_id is required"), nil
+		}
+		result, err := switchAddnessCodexOrganization(ctx, client, orgID)
+		if err != nil {
+			return errResult(err.Error()), nil
+		}
+		out, err := json.Marshal(result)
+		if err != nil {
+			return errResult(fmt.Sprintf("marshal error: %v", err)), nil
+		}
+		return textResult(string(out)), nil
+	}
 }
 
 func handleAddnessCodexGetTodaysGoalsView(client *AddnessClient) server.ToolHandlerFunc {

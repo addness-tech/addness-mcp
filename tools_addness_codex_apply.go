@@ -111,7 +111,7 @@ func applyAddnessCodexTodaysGoalsChanges(
 		return fetchAddnessCodexTodaysGoalsView(ctx, client, date, request.MemberID)
 	}
 
-	targetMemberID, err := resolveCodexApplyTargetMemberID(client, request.MemberID)
+	targetMemberID, err := resolveCodexApplyTargetMemberID(ctx, client, request.MemberID)
 	if err != nil {
 		return addnessCodexTodaysGoalsViewPayload{}, err
 	}
@@ -175,7 +175,7 @@ func applySingleCodexChange(
 		}
 		return codexUpdateObjectiveTitle(ctx, client, goalID, change.Title)
 	case "update_status":
-		return applyCodexStatusChange(ctx, client, change, idMap)
+		return applyCodexStatusChange(ctx, client, date, change, idMap)
 	case "delete_goal":
 		goalID := resolveCodexGoalID(change.GoalID, idMap)
 		return codexDeleteObjectives(ctx, client, []string{goalID})
@@ -221,6 +221,7 @@ func applyCodexCreateChange(
 func applyCodexStatusChange(
 	ctx context.Context,
 	client *AddnessClient,
+	date string,
 	change addnessCodexApplyChange,
 	idMap map[string]string,
 ) error {
@@ -234,7 +235,7 @@ func applyCodexStatusChange(
 		if err != nil {
 			return err
 		}
-		if result, err := findTodaysExecution(ctx, client, fullGoalID); err != nil {
+		if result, err := findCodexExecutionOnDate(ctx, client, fullGoalID, date); err != nil {
 			return fmt.Errorf("recurring status lookup failed: %w", err)
 		} else if result.isRecurring {
 			return fmt.Errorf("recurring goal status update requires execution_id")
@@ -244,9 +245,44 @@ func applyCodexStatusChange(
 	return codexUpdateObjectiveStatusFields(ctx, client, goalID, change.Status, change.CompletedAt)
 }
 
-func resolveCodexApplyTargetMemberID(client *AddnessClient, memberID string) (string, error) {
+func findCodexExecutionOnDate(ctx context.Context, client *AddnessClient, objectiveID string, date string) (executionLookupResult, error) {
+	orgID := client.OrganizationID()
+	if orgID == "" {
+		return executionLookupResult{}, nil
+	}
+
+	path := fmt.Sprintf("/api/v2/organizations/%s/todays-goals?date=%s", orgID, date)
+	data, err := client.Get(ctx, path)
+	if err != nil {
+		return executionLookupResult{}, fmt.Errorf("todays-goals API: %w", err)
+	}
+
+	nodes, err := parseTodaysGoals(data, client.ids)
+	if err != nil {
+		return executionLookupResult{}, fmt.Errorf("parse todays-goals: %w", err)
+	}
+
+	for _, n := range nodes {
+		fullNodeID, _ := client.ids.Resolve(n.ID)
+		if fullNodeID != objectiveID {
+			continue
+		}
+		result := executionLookupResult{isRecurring: n.HasRecurr}
+		if n.ExecID != "" {
+			resolved, _ := client.ids.Resolve(n.ExecID)
+			result.execID = resolved
+		}
+		return result, nil
+	}
+	return executionLookupResult{}, nil
+}
+
+func resolveCodexApplyTargetMemberID(ctx context.Context, client *AddnessClient, memberID string) (string, error) {
 	if memberID != "" {
 		return client.ids.Resolve(memberID)
+	}
+	if err := ensureAddnessCodexCurrentMemberResolved(ctx, client); err != nil {
+		return "", err
 	}
 	if myID := client.MemberID(); myID != "" {
 		return myID, nil

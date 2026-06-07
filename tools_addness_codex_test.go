@@ -360,10 +360,12 @@ func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
 	patchCalled := false
+	lookupDate := ""
 	goalID := "goal-recurring-000000000000000000000001"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/organizations/org-main-000000000000000000000001/todays-goals":
+			lookupDate = r.URL.Query().Get("date")
 			_, _ = fmt.Fprintf(w, `{"data":{"nodes":[{"id":%q,"title":"定常ゴール","hasRecurring":true}]}}`, goalID)
 		case r.Method == http.MethodPatch:
 			patchCalled = true
@@ -382,7 +384,7 @@ func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T)
 	client.SetMemberID("member-self-000000000000000000000001")
 
 	completedAt := "2026-06-07T01:02:03Z"
-	err := applyCodexStatusChange(t.Context(), client, addnessCodexApplyChange{
+	err := applyCodexStatusChange(t.Context(), client, "2026-06-07", addnessCodexApplyChange{
 		Type:        "update_status",
 		GoalID:      goalShortID,
 		CompletedAt: &completedAt,
@@ -392,6 +394,9 @@ func TestApplyAddnessCodexStatusRejectsRecurringWithoutExecutionID(t *testing.T)
 	}
 	if patchCalled {
 		t.Fatal("recurring objective should not be patched without execution_id")
+	}
+	if lookupDate != "2026-06-07" {
+		t.Fatalf("expected recurring lookup on payload date, got %q", lookupDate)
 	}
 }
 
@@ -424,7 +429,7 @@ func TestApplyAddnessCodexStatusPreservesProvidedCompletedAt(t *testing.T) {
 	client.SetMemberID("member-self-000000000000000000000001")
 
 	completedAt := "2026-06-07T01:02:03Z"
-	if err := applyCodexStatusChange(t.Context(), client, addnessCodexApplyChange{
+	if err := applyCodexStatusChange(t.Context(), client, "2026-06-07", addnessCodexApplyChange{
 		Type:        "update_status",
 		GoalID:      goalShortID,
 		CompletedAt: &completedAt,
@@ -433,5 +438,51 @@ func TestApplyAddnessCodexStatusPreservesProvidedCompletedAt(t *testing.T) {
 	}
 	if patchBody["completedAt"] != completedAt {
 		t.Fatalf("expected provided completedAt to be preserved, got %#v", patchBody["completedAt"])
+	}
+}
+
+func TestApplyAddnessCodexSelfEditResolvesCurrentMember(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	patchCalled := false
+	goalID := "goal-self-000000000000000000000001"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/members":
+			_, _ = w.Write([]byte(`{"data":{"members":[{"id":"member-self-000000000000000000000001","isCurrentUser":true}]}}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/v2/objectives/"+goalID:
+			patchCalled = true
+			_, _ = w.Write([]byte(`{"data":{"id":"goal-self-000000000000000000000001"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/organizations/org-main-000000000000000000000001/todays-goals":
+			_, _ = w.Write([]byte(`{"data":{"nodes":[]}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ids := NewShortIDCache()
+	goalShortID := ids.Shorten(goalID)
+	client := NewAddnessClient(server.URL, ids)
+	client.SetToken("sk-test")
+	client.SetOrganization("org-main-000000000000000000000001")
+
+	_, err := applyAddnessCodexTodaysGoalsChanges(t.Context(), client, addnessCodexApplyRequest{
+		Version: 1,
+		Date:    "2026-06-07",
+		Changes: []addnessCodexApplyChange{{
+			Type:   "update_title",
+			GoalID: goalShortID,
+			Title:  "更新後タイトル",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("applyAddnessCodexTodaysGoalsChanges returned error: %v", err)
+	}
+	if !patchCalled {
+		t.Fatal("expected self edit to patch objective after resolving current member")
+	}
+	if client.MemberID() != "member-self-000000000000000000000001" {
+		t.Fatalf("expected current member to be resolved, got %q", client.MemberID())
 	}
 }

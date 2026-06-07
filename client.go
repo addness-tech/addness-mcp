@@ -57,14 +57,6 @@ func (c *AddnessClient) SetMemberID(memberID string) {
 	c.saveSession()
 }
 
-func (c *AddnessClient) restoreSession(orgID, memberID string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.orgID = orgID
-	c.memberID = memberID
-	c.saveSession()
-}
-
 // --- Session persistence ---
 
 type persistedSession struct {
